@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: digitalhr-db
+    environment:
+      POSTGRES_DB: digitalhr
+      POSTGRES_USER: digitalhr
+      POSTGRES_PASSWORD: digitalhr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digitalhr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: digitalhr-api
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/digitalhr
+      SPRING_DATASOURCE_USERNAME: digitalhr
+      SPRING_DATASOURCE_PASSWORD: digitalhr
+
+volumes:
+  pgdata:
