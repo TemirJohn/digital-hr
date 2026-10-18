@@ -12,16 +12,22 @@ import kz.janapost.digitalhr.employee.repository.EmployeeRepository;
 import kz.janapost.digitalhr.hiring.dto.*;
 import kz.janapost.digitalhr.hiring.entity.Candidate;
 import kz.janapost.digitalhr.hiring.entity.Vacancy;
+import kz.janapost.digitalhr.auth.entity.User;
+import kz.janapost.digitalhr.auth.repository.UserRepository;
+import kz.janapost.digitalhr.common.enums.Role;
 import kz.janapost.digitalhr.hiring.mapper.CandidateMapper;
 import kz.janapost.digitalhr.hiring.repository.CandidateRepository;
 import kz.janapost.digitalhr.hiring.repository.VacancyRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -33,6 +39,8 @@ public class CandidateService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeAuditLogRepository auditLogRepository;
     private final EmployeeMapper employeeMapper;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
     public List<CandidateDto> getByVacancy(Long vacancyId) {
@@ -123,6 +131,41 @@ public class CandidateService {
                 .newValue("HIRED_FROM_CANDIDATE_" + candidate.getId())
                 .changedBy(currentUserId)
                 .build());
+
+        // Auto-create User account with phone as password
+        if (saved.getEmail() != null && !saved.getEmail().isBlank()) {
+            String cleanEmail = saved.getEmail().trim().toLowerCase();
+            String defaultPassword = (saved.getPhone() != null && !saved.getPhone().isBlank())
+                    ? saved.getPhone().trim()
+                    : "janapost123";
+
+            userRepository.findByEmail(cleanEmail).ifPresentOrElse(
+                    existingUser -> {
+                        existingUser.setEmployeeId(saved.getId());
+                        if (saved.getDepartmentId() != null) {
+                            existingUser.setDepartmentId(saved.getDepartmentId());
+                        }
+                        if (existingUser.getPasswordHash() == null || existingUser.getPasswordHash().isBlank()) {
+                            existingUser.setPasswordHash(passwordEncoder.encode(defaultPassword));
+                        }
+                        userRepository.save(existingUser);
+                        log.info("Linked existing user {} to hired employee #{}", cleanEmail, saved.getId());
+                    },
+                    () -> {
+                        User newUser = User.builder()
+                                .email(cleanEmail)
+                                .passwordHash(passwordEncoder.encode(defaultPassword))
+                                .role(Role.EMPLOYEE)
+                                .departmentId(saved.getDepartmentId())
+                                .employeeId(saved.getId())
+                                .isActive(true)
+                                .build();
+                        userRepository.save(newUser);
+                        log.info("Created user account for hired employee #{}: email={}, default password is phone number",
+                                saved.getId(), cleanEmail);
+                    }
+            );
+        }
 
         return employeeMapper.toDto(saved);
     }
