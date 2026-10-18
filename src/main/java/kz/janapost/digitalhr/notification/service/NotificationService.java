@@ -2,8 +2,12 @@ package kz.janapost.digitalhr.notification.service;
 
 import kz.janapost.digitalhr.common.exception.ResourceNotFoundException;
 import kz.janapost.digitalhr.notification.dto.NotificationDto;
+import kz.janapost.digitalhr.notification.dto.SendNotificationRequest;
 import kz.janapost.digitalhr.notification.entity.Notification;
 import kz.janapost.digitalhr.notification.repository.NotificationRepository;
+import kz.janapost.digitalhr.auth.entity.User;
+import kz.janapost.digitalhr.auth.repository.UserRepository;
+import kz.janapost.digitalhr.employee.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +21,8 @@ import java.util.stream.Collectors;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final UserRepository userRepository;
+    private final EmployeeRepository employeeRepository;
 
     @Transactional(readOnly = true)
     public List<NotificationDto> getMyNotifications(Long userId) {
@@ -65,6 +71,22 @@ public class NotificationService {
                 .referenceType(referenceType)
                 .build();
         notificationRepository.save(notification);
+    }
+
+    public void sendToUserOrEmployee(SendNotificationRequest request) {
+        Long targetUserId = request.getUserId();
+        if (targetUserId == null && request.getEmployeeId() != null) {
+            targetUserId = userRepository.findByEmployeeId(request.getEmployeeId())
+                    .map(User::getId)
+                    .orElseGet(() -> employeeRepository.findById(request.getEmployeeId())
+                            .flatMap(emp -> emp.getEmail() != null ? userRepository.findByEmail(emp.getEmail()) : java.util.Optional.empty())
+                            .map(User::getId)
+                            .orElse(null));
+        }
+
+        if (targetUserId != null) {
+            createNotification(targetUserId, request.getTitle(), request.getMessage(), "MESSAGE", request.getEmployeeId(), "EMPLOYEE");
+        }
     }
 
     private NotificationDto toDto(Notification n) {

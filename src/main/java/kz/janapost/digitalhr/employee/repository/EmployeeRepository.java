@@ -9,4 +9,5 @@ import java.util.List;
 public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSpecificationExecutor<Employee> {
     List<Employee> findByDepartmentId(Long departmentId);
     List<Employee> findByCity(String city);
+    java.util.Optional<Employee> findByEmail(String email);
 }

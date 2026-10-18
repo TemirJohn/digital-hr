@@ -66,9 +66,9 @@ public class VacancyController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'HR')")
-    @Operation(summary = "Close vacancy")
-    public ApiResponse<Void> close(@PathVariable Long id) {
-        vacancyService.close(id);
-        return ApiResponse.ok(null, "Vacancy closed successfully");
+    @Operation(summary = "Delete or close vacancy")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        vacancyService.delete(id);
+        return ApiResponse.ok(null, "Vacancy deleted successfully");
     }
 }
