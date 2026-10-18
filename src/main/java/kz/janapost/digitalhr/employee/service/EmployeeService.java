@@ -26,7 +26,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import kz.janapost.digitalhr.auth.entity.User;
+import kz.janapost.digitalhr.auth.repository.UserRepository;
+import kz.janapost.digitalhr.common.enums.Role;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -36,6 +42,8 @@ public class EmployeeService {
     private final EmployeeAuditLogRepository auditLogRepository;
     private final EmployeeDocumentRepository documentRepository;
     private final EmployeeMapper employeeMapper;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
     public PageResponse<EmployeeDto> getAll(String search, Long departmentId, String city, String status, int page, int size, String sort) {
@@ -109,6 +117,41 @@ public class EmployeeService {
                 .newValue("CREATED")
                 .changedBy(currentUserId)
                 .build());
+
+        // Automatically create user login account for the new employee with their phone number as password
+        if (saved.getEmail() != null && !saved.getEmail().isBlank()) {
+            String cleanEmail = saved.getEmail().trim().toLowerCase();
+            String defaultPassword = (saved.getPhone() != null && !saved.getPhone().isBlank())
+                    ? saved.getPhone().trim()
+                    : "janapost123";
+
+            userRepository.findByEmail(cleanEmail).ifPresentOrElse(
+                    existingUser -> {
+                        existingUser.setEmployeeId(saved.getId());
+                        if (saved.getDepartmentId() != null) {
+                            existingUser.setDepartmentId(saved.getDepartmentId());
+                        }
+                        if (existingUser.getPasswordHash() == null || existingUser.getPasswordHash().isBlank()) {
+                            existingUser.setPasswordHash(passwordEncoder.encode(defaultPassword));
+                        }
+                        userRepository.save(existingUser);
+                        log.info("Linked existing user {} to new employee #{}", cleanEmail, saved.getId());
+                    },
+                    () -> {
+                        User newUser = User.builder()
+                                .email(cleanEmail)
+                                .passwordHash(passwordEncoder.encode(defaultPassword))
+                                .role(Role.EMPLOYEE)
+                                .departmentId(saved.getDepartmentId())
+                                .employeeId(saved.getId())
+                                .isActive(true)
+                                .build();
+                        userRepository.save(newUser);
+                        log.info("Created user account for new employee #{}: email={}, default password is phone number",
+                                saved.getId(), cleanEmail);
+                    }
+            );
+        }
 
         return employeeMapper.toDto(saved);
     }

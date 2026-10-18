@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -40,19 +41,110 @@ public class AuthService {
     private String expectedClientId;
 
     public LoginResponse login(LoginRequest request) {
-        Authentication auth = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
-        );
+        String inputEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
+        String inputPassword = request.getPassword() != null ? request.getPassword().trim() : "";
 
-        CustomUserDetails userDetails = (CustomUserDetails) auth.getPrincipal();
-        String token = tokenProvider.generateToken(userDetails.getEmail(), userDetails.getRole());
+        if (inputEmail.isBlank() || inputPassword.isBlank()) {
+            throw new BadRequestException("Email and password are required");
+        }
+
+        // 1. Find user by email
+        Optional<User> userOpt = userRepository.findByEmail(inputEmail);
+
+        // 2. If not found by email, check if inputEmail was entered as phone number
+        if (userOpt.isEmpty()) {
+            String digits = inputEmail.replaceAll("[^0-9]", "");
+            if (digits.length() >= 7) {
+                String suffix = digits.length() >= 10 ? digits.substring(digits.length() - 10) : digits;
+                Optional<Employee> empByPhone = employeeRepository.findAll().stream()
+                        .filter(e -> e.getPhone() != null && e.getPhone().replaceAll("[^0-9]", "").endsWith(suffix))
+                        .findFirst();
+                if (empByPhone.isPresent() && empByPhone.get().getEmail() != null) {
+                    inputEmail = empByPhone.get().getEmail().toLowerCase().trim();
+                    userOpt = userRepository.findByEmail(inputEmail);
+                }
+            }
+        }
+
+        // 3. If User record still not found, check if an Employee exists with this email (registered by HR)
+        // and auto-create the User with default password = employee phone number
+        if (userOpt.isEmpty()) {
+            Optional<Employee> empOpt = employeeRepository.findByEmail(inputEmail);
+            if (empOpt.isPresent()) {
+                Employee emp = empOpt.get();
+                String defaultPass = (emp.getPhone() != null && !emp.getPhone().isBlank())
+                        ? emp.getPhone().trim()
+                        : "janapost123";
+
+                User newUser = User.builder()
+                        .email(inputEmail)
+                        .passwordHash(passwordEncoder.encode(defaultPass))
+                        .role(Role.EMPLOYEE)
+                        .departmentId(emp.getDepartmentId())
+                        .employeeId(emp.getId())
+                        .isActive(true)
+                        .build();
+                userOpt = Optional.of(userRepository.save(newUser));
+                log.info("Auto-provisioned User for employee #{}: email={}, default password is phone number", emp.getId(), inputEmail);
+            }
+        }
+
+        if (userOpt.isEmpty()) {
+            throw new BadCredentialsException("Неверный email или пароль");
+        }
+
+        User user = userOpt.get();
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
+            throw new BadRequestException("Ваш аккаунт деактивирован. Обратитесь к HR.");
+        }
+
+        // 4. Verify password: first try BCrypt hash
+        boolean passwordMatches = passwordEncoder.matches(inputPassword, user.getPasswordHash());
+
+        // If direct BCrypt check fails, check if inputPassword matches employee's phone number
+        if (!passwordMatches && user.getEmployeeId() != null) {
+            Optional<Employee> empOpt = employeeRepository.findById(user.getEmployeeId());
+            if (empOpt.isPresent() && empOpt.get().getPhone() != null) {
+                String empPhone = empOpt.get().getPhone().trim();
+                if (empPhone.equals(inputPassword)) {
+                    passwordMatches = true;
+                } else {
+                    String enteredDigits = inputPassword.replaceAll("[^0-9]", "");
+                    String empPhoneDigits = empPhone.replaceAll("[^0-9]", "");
+                    if (!enteredDigits.isEmpty() && !empPhoneDigits.isEmpty()) {
+                        String suffixEntered = enteredDigits.length() >= 10
+                                ? enteredDigits.substring(enteredDigits.length() - 10)
+                                : enteredDigits;
+                        String suffixEmp = empPhoneDigits.length() >= 10
+                                ? empPhoneDigits.substring(empPhoneDigits.length() - 10)
+                                : empPhoneDigits;
+                        if (suffixEntered.equals(suffixEmp)) {
+                            passwordMatches = true;
+                        }
+                    }
+                }
+
+                if (passwordMatches) {
+                    // Update user's passwordHash so BCrypt is synced with the exact entered password
+                    user.setPasswordHash(passwordEncoder.encode(inputPassword));
+                    userRepository.save(user);
+                    log.info("Password authenticated via phone number match for user {}", user.getEmail());
+                }
+            }
+        }
+
+        if (!passwordMatches) {
+            throw new BadCredentialsException("Неверный email или пароль");
+        }
+
+        String token = tokenProvider.generateToken(user.getEmail(), user.getRole().name());
 
         return LoginResponse.builder()
                 .token(token)
-                .role(userDetails.getRole())
-                .userId(userDetails.getId())
-                .email(userDetails.getEmail())
-                .departmentId(userDetails.getDepartmentId())
+                .role(user.getRole().name())
+                .userId(user.getId())
+                .email(user.getEmail())
+                .departmentId(user.getDepartmentId())
                 .build();
     }
 
