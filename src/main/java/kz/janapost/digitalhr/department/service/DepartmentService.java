@@ -48,6 +48,13 @@ public class DepartmentService {
     }
 
     @Transactional(readOnly = true)
+    public List<DepartmentDto> getAll() {
+        return departmentRepository.findAllByIsActiveTrue().stream()
+                .map(departmentMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
     public DepartmentDto getById(Long id) {
         Department department = departmentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Department not found with id: " + id));

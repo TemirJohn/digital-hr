@@ -24,6 +24,12 @@ public class DepartmentController {
 
     private final DepartmentService departmentService;
 
+    @GetMapping
+    @Operation(summary = "Get all active departments (flat list)")
+    public ApiResponse<List<DepartmentDto>> getAll() {
+        return ApiResponse.ok(departmentService.getAll());
+    }
+
     @GetMapping("/tree")
     @Operation(summary = "Get department hierarchy tree")
     public ApiResponse<List<DepartmentTreeDto>> getTree() {

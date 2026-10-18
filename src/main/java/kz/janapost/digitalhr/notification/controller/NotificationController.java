@@ -53,4 +53,11 @@ public class NotificationController {
         notificationService.markAllAsRead(userDetails.getId());
         return ApiResponse.ok(null, "All notifications marked as read");
     }
+
+    @PostMapping("/send")
+    @Operation(summary = "Send notification/message to employee or user")
+    public ApiResponse<Void> send(@jakarta.validation.Valid @RequestBody kz.janapost.digitalhr.notification.dto.SendNotificationRequest request) {
+        notificationService.sendToUserOrEmployee(request);
+        return ApiResponse.ok(null, "Notification sent successfully");
+    }
 }

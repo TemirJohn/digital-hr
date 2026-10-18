@@ -112,4 +112,16 @@ public class VacancyService {
         vacancy.setStatus(VacancyStatus.CLOSED);
         vacancyRepository.save(vacancy);
     }
+
+    public void delete(Long id) {
+        Vacancy vacancy = vacancyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Vacancy not found with id: " + id));
+        try {
+            vacancyRepository.delete(vacancy);
+            vacancyRepository.flush();
+        } catch (Exception e) {
+            vacancy.setStatus(VacancyStatus.CLOSED);
+            vacancyRepository.save(vacancy);
+        }
+    }
 }

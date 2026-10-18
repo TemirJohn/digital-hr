@@ -26,6 +26,9 @@ jwt:
   secret: JanaPostDigitalHR2024SecretKeyForJWTTokenGenerationMinimum256Bits!!
   expiration: 86400000  # 24 hours
 
+google:
+  client-id: 179402934896-66819dafj6pcbkkmd011hoodoib942m5.apps.googleusercontent.com
+
 springdoc:
   swagger-ui:
     path: /swagger-ui
